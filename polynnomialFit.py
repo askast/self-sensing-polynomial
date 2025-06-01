@@ -1,18 +1,17 @@
+import sys
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
+from scipy.interpolate import Rbf
+np.set_printoptions(threshold=sys.maxsize)
 
 from mpl_toolkits.mplot3d import Axes3D # Required for 3D plotting
 
-# Note: The 'filename' variable (defined above your placeholder) should point to your Excel file (e.g., 'data.xlsx').
-# If 'filename' currently points to a CSV file (e.g., 'data.csv'),
-# you should change pd.read_excel(filename) to pd.read_csv(filename) in the line below,
-# or update 'filename' to point to an actual Excel file.
-# The file is expected to contain columns named 'x', 'y', and 'z'.
+filename = 'data2.csv'
+reference_filename = 'reference_data.csv'
+eta_mod_coefficient = 0.15
 
-filename = 'data.csv'
-power_units = 'HP'  # {HP, kW, W}
+power_units = 'KW'  # {HP, kW, W}
 match power_units:
     case 'HP':
         power_conversion_factor = 1  # 1 HP = 0.7457 kW
@@ -35,25 +34,29 @@ except ValueError as e:
     else:
         raise # Re-raise original error if not a .csv or if CSV read also fails
 
-#
+try:
+    reference_data = pd.read_excel(reference_filename)
+except ValueError as ref_e:
+    if reference_filename.lower().endswith('.csv'):
+        print(f"Reading as Excel failed for {reference_filename}: {ref_e}. Trying to read as CSV.")
+        reference_data = pd.read_csv(reference_filename)
+    else:
+        raise
 def create_off_speed_test_data(hz_data, flow_data, head_data, power_data):
     """
     Create a DataFrame with the given data.
     This function is a placeholder and can be modified to generate test data.
     """
-    target_hz = [65, 60, 55, 50, 45, 40, 30, 20]
+    target_hz = [65, 60, 55, 50, 45, 40, 30]
     extrapolated_flow = []
     extrapolated_power = []
     extrapolated_head = []
     extrapolated_hz = []
+    eta_data = flow_data * head_data / (3960 * power_data * power_conversion_factor)
+    bep_eta = eta_data.max()  # Calculate the max efficiency
     for hz in target_hz:
         for hz_val, flow_val, head_val, power_val in zip(hz_data, flow_data, head_data, power_data):
-            eta_val = flow_val * head_val / (3960 * power_val* power_conversion_factor)
-            if eta_val != 0:
-                eta_ratio = (eta_val**-1)-(((eta_val**-1)-1)*((hz_val/hz)**0.15))
-            else:
-                eta_ratio = 1
-
+            eta_ratio = (bep_eta**-1)-(((bep_eta**-1)-1)*((hz_val/hz)**eta_mod_coefficient))
             extrapolated_flow.append(flow_val * hz/hz_val)
             extrapolated_head.append(head_val * (hz/hz_val)**2)
             extrapolated_power.append((power_val * (hz/hz_val)**3)/ eta_ratio)
@@ -73,6 +76,8 @@ flow_data = data['flow'].values
 head_data = data.get('head', None)  # Optional, if 'head' column exists
 
 extrapolated_data = create_off_speed_test_data(hz_data, flow_data, head_data, power_data)
+# save extrapolated_data to a CSV file
+extrapolated_data.to_csv("extrapolated_data.csv", index=False)
 
 # Create the design matrix for a cubic polynomial z = f(x,y)
 # The terms are: 1, x, y, x^2, xy, y^2, x^3, x^2y, xy^2, y^3
@@ -85,20 +90,55 @@ A = np.vstack([
     extrapolated_data['extrapolated_power']**2,             # y^2
     extrapolated_data['extrapolated_hz']**3,             # x^3
     extrapolated_data['extrapolated_hz']**2 * extrapolated_data['extrapolated_power'],    # x^2y
-    extrapolated_data['extrapolated_hz'] * extrapolated_data['extrapolated_power']**2,    # xy^2
-    extrapolated_data['extrapolated_power']**3              # y^3
+    extrapolated_data['extrapolated_hz'] * extrapolated_data['extrapolated_power']**2,# xy^2
+    extrapolated_data['extrapolated_power']**3,             # y^3
+    extrapolated_data['extrapolated_hz']**4,                # x^4
+    extrapolated_data['extrapolated_hz']**3 * extrapolated_data['extrapolated_power'],         # x^3y
+    extrapolated_data['extrapolated_hz']**2 * extrapolated_data['extrapolated_power']**2,      # x^2y^2
+    extrapolated_data['extrapolated_hz'] * extrapolated_data['extrapolated_power']**3,         # xy^3
+    extrapolated_data['extrapolated_power']**4              # y^4
 ]).T
 
 # Perform least squares regression to find the polynomial coefficients
 # np.linalg.lstsq returns a tuple; the first element contains the coefficients
-coeffs = np.linalg.lstsq(A, extrapolated_data['extrapolated_flow'], rcond=None)[0]
+# Fit a radial basis function interpolator to the data
+rbf = Rbf(
+    extrapolated_data['extrapolated_hz'],
+    extrapolated_data['extrapolated_power'],
+    extrapolated_data['extrapolated_flow'],
+    function='thin_plate',  # You can choose other functions like 'linear', 'cubic', etc.
+)
 
 # Define the polynomial function using the calculated coefficients for predictions
 def cubic_poly_surface(x, y, c):
     return (c[0] +
             c[1] * x + c[2] * y +
             c[3] * x**2 + c[4] * x * y + c[5] * y**2 +
-            c[6] * x**3 + c[7] * x**2 * y + c[8] * x * y**2 + c[9] * y**3)
+            c[6] * x**3 + c[7] * x**2 * y + c[8] * x * y**2 + c[9] * y**3 
+            + c[10] * x**4 + c[11] * x**3 * y + c[12] * x**2 * y**2 + c[13] * x * y**3 + c[14] * y**4
+            )
+
+#determining error in the fit
+# flow_estimated = cubic_poly_surface(reference_data['hz'], reference_data['power'], coeffs)
+# error = (flow_estimated - reference_data['flow'])/ reference_data['flow']
+# print(error*100)  # Print error as a percentage
+# for ref_data_point, flow_est_point, error in zip(reference_data.itertuples(), flow_estimated, error):
+    # print(f"Data Point: {ref_data_point.hz}, {ref_data_point.power}, {ref_data_point.flow}, {flow_est_point}| Error: {error*100:.2f}%")
+# print the polynomial equation
+# print(f"""Polynomial Coefficients: 
+#         {coeffs[0]} +
+#         {coeffs[1]} * x + {coeffs[2]} * y +
+#         {coeffs[3]} * x**2 + {coeffs[4]} * x * y + {coeffs[5]} * y**2 +
+#         {coeffs[6]} * x**3 + {coeffs[7]} * x**2 * y + {coeffs[8]} * x * y**2 + {coeffs[9]} * y**3 
+# """)
+# poly_string= f"{coeffs[0]}+{coeffs[1]}*$B$98+{coeffs[2]}*C100+{coeffs[3]}*$B$98^2+{coeffs[4]}*$B$98*C100+{coeffs[5]}*C100^2+{coeffs[6]}*$B$98^3+{coeffs[7]}*$B$98^2*C100+{coeffs[8]}*$B$98*C100^2+{coeffs[9]}*C100^3+{coeffs[10]}*$B$98^4+{coeffs[11]}*$B$98^3*C100+{coeffs[12]}*$B$98^2*C100^2+{coeffs[13]}*$B$98*C100^3+{coeffs[14]}*C100^4"
+# poly_string = poly_string.replace('+-', '-')
+# print(f"Polynomial Coefficients:\n{poly_string}")
+# poly_string = poly_string.replace('$B$98', 'hz').replace('C100', 'power')
+# print(f"Polynomial Coefficients:\n{poly_string}")
+
+# Calculate the error (difference) between estimated and actual flow values
+# flow_error = reference_data['flow'] - flow_estimated
 
 # Create a grid of points to plot the fitted surface
 # Generate a range of x and y values based on the data extents
@@ -107,7 +147,8 @@ y_surf_range = np.linspace(extrapolated_data['extrapolated_power'].min(), extrap
 X_surf, Y_surf = np.meshgrid(x_surf_range, y_surf_range)
 
 # Calculate the Z values for the surface using the polynomial function
-Z_surf = cubic_poly_surface(X_surf, Y_surf, coeffs)
+# Z_surf = cubic_poly_surface(X_surf, Y_surf, coeffs)
+Z_surf = rbf(X_surf, Y_surf)  # Use the RBF interpolator to get Z values
 
 # Matplotlib visualization
 fig = plt.figure(figsize=(12, 8))  # Create a figure for the plot
@@ -115,7 +156,9 @@ ax = fig.add_subplot(111, projection='3d')  # Add a 3D subplot
 
 # Scatter plot of the original data points
 ax.scatter(extrapolated_data['extrapolated_hz'], extrapolated_data['extrapolated_power'], extrapolated_data['extrapolated_flow'], color='red', marker='o', s=50, label='Data Points')
-max_flow = extrapolated_data['extrapolated_flow'].max()
+# ax.scatter(reference_data['hz'], reference_data['power'], reference_data['flow'], color='red', marker='o', s=50, label='Data Points')
+# max_flow = reference_data['flow'].max()*1.1
+max_flow = extrapolated_data['extrapolated_flow'].max() * 1.1  # Set the maximum flow value for masking
 
 # Create a mask to filter out Z values that are greater than the maximum flow value and less than or equal to the maximum flow value
 mask = (Z_surf <= max_flow) & (Z_surf > 0)  # Mask for Z values within the range of interest
