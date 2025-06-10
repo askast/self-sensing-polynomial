@@ -2,7 +2,7 @@ import sys
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from scipy.interpolate import Rbf
+from scipy.interpolate import RBFInterpolator
 np.set_printoptions(threshold=sys.maxsize)
 
 from mpl_toolkits.mplot3d import Axes3D # Required for 3D plotting
@@ -103,11 +103,11 @@ A = np.vstack([
 # np.linalg.lstsq returns a tuple; the first element contains the coefficients
 coeffs, residuals, rank, s = np.linalg.lstsq(A, extrapolated_data['extrapolated_flow'], rcond=None)
 # Fit a radial basis function interpolator to the data
-rbf = Rbf(
-    extrapolated_data['extrapolated_hz'],
-    extrapolated_data['extrapolated_power'],
+rbf_points = np.vstack([extrapolated_data['extrapolated_hz'], extrapolated_data['extrapolated_power']]).T
+rbf = RBFInterpolator(
+    rbf_points,
     extrapolated_data['extrapolated_flow'],
-    function='thin_plate',  # You can choose other functions like 'linear', 'cubic', etc.
+    kernel='thin_plate_spline',  # You can choose other functions like 'linear', 'cubic', etc.
 )
 
 # Define the polynomial function using the calculated coefficients for predictions
@@ -148,8 +148,16 @@ y_surf_range = np.linspace(extrapolated_data['extrapolated_power'].min(), extrap
 X_surf, Y_surf = np.meshgrid(x_surf_range, y_surf_range)
 
 # Calculate the Z values for the surface using the polynomial function
+<<<<<<< HEAD
 Z_surf = cubic_poly_surface(X_surf, Y_surf, coeffs)
 # Z_surf = rbf(X_surf, Y_surf)  # Use the RBF interpolator to get Z values
+=======
+# Z_surf = cubic_poly_surface(X_surf, Y_surf, coeffs)
+# For RBFInterpolator, the input needs to be a 2D array of points
+rbf_grid_points = np.vstack([X_surf.ravel(), Y_surf.ravel()]).T
+Z_surf_flat = rbf(rbf_grid_points)
+Z_surf = Z_surf_flat.reshape(X_surf.shape)  # Reshape back to grid
+>>>>>>> 1a11f3b622a542e82e1e2d4edc6b9facdd8a08e8
 
 # Matplotlib visualization
 fig = plt.figure(figsize=(12, 8))  # Create a figure for the plot
