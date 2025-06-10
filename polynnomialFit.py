@@ -7,9 +7,9 @@ np.set_printoptions(threshold=sys.maxsize)
 
 from mpl_toolkits.mplot3d import Axes3D # Required for 3D plotting
 
-filename = 'data2.csv'
+filename = 'data3.csv'
 reference_filename = 'reference_data.csv'
-eta_mod_coefficient = 0.15
+eta_mod_coefficient = 0.1
 
 power_units = 'KW'  # {HP, kW, W}
 match power_units:
@@ -47,7 +47,7 @@ def create_off_speed_test_data(hz_data, flow_data, head_data, power_data):
     Create a DataFrame with the given data.
     This function is a placeholder and can be modified to generate test data.
     """
-    target_hz = [65, 60, 55, 50, 45, 40, 30]
+    target_hz = [65, 60, 55, 50, 45, 40, 35, 33, 30]
     extrapolated_flow = []
     extrapolated_power = []
     extrapolated_head = []
@@ -101,6 +101,7 @@ A = np.vstack([
 
 # Perform least squares regression to find the polynomial coefficients
 # np.linalg.lstsq returns a tuple; the first element contains the coefficients
+coeffs, residuals, rank, s = np.linalg.lstsq(A, extrapolated_data['extrapolated_flow'], rcond=None)
 # Fit a radial basis function interpolator to the data
 rbf = Rbf(
     extrapolated_data['extrapolated_hz'],
@@ -119,26 +120,26 @@ def cubic_poly_surface(x, y, c):
             )
 
 #determining error in the fit
-# flow_estimated = cubic_poly_surface(reference_data['hz'], reference_data['power'], coeffs)
-# error = (flow_estimated - reference_data['flow'])/ reference_data['flow']
-# print(error*100)  # Print error as a percentage
-# for ref_data_point, flow_est_point, error in zip(reference_data.itertuples(), flow_estimated, error):
-    # print(f"Data Point: {ref_data_point.hz}, {ref_data_point.power}, {ref_data_point.flow}, {flow_est_point}| Error: {error*100:.2f}%")
+flow_estimated = cubic_poly_surface(reference_data['hz'], reference_data['power'], coeffs)
+error = (flow_estimated - reference_data['flow'])/ reference_data['flow']
+print(error*100)  # Print error as a percentage
+for ref_data_point, flow_est_point, error in zip(reference_data.itertuples(), flow_estimated, error):
+    print(f"Data Point: {ref_data_point.hz}, {ref_data_point.power}, {ref_data_point.flow}, {flow_est_point}| Error: {error*100:.2f}%")
 # print the polynomial equation
-# print(f"""Polynomial Coefficients: 
-#         {coeffs[0]} +
-#         {coeffs[1]} * x + {coeffs[2]} * y +
-#         {coeffs[3]} * x**2 + {coeffs[4]} * x * y + {coeffs[5]} * y**2 +
-#         {coeffs[6]} * x**3 + {coeffs[7]} * x**2 * y + {coeffs[8]} * x * y**2 + {coeffs[9]} * y**3 
-# """)
-# poly_string= f"{coeffs[0]}+{coeffs[1]}*$B$98+{coeffs[2]}*C100+{coeffs[3]}*$B$98^2+{coeffs[4]}*$B$98*C100+{coeffs[5]}*C100^2+{coeffs[6]}*$B$98^3+{coeffs[7]}*$B$98^2*C100+{coeffs[8]}*$B$98*C100^2+{coeffs[9]}*C100^3+{coeffs[10]}*$B$98^4+{coeffs[11]}*$B$98^3*C100+{coeffs[12]}*$B$98^2*C100^2+{coeffs[13]}*$B$98*C100^3+{coeffs[14]}*C100^4"
-# poly_string = poly_string.replace('+-', '-')
-# print(f"Polynomial Coefficients:\n{poly_string}")
-# poly_string = poly_string.replace('$B$98', 'hz').replace('C100', 'power')
-# print(f"Polynomial Coefficients:\n{poly_string}")
+print(f"""Polynomial Coefficients: 
+        {coeffs[0]} +
+        {coeffs[1]} * x + {coeffs[2]} * y +
+        {coeffs[3]} * x**2 + {coeffs[4]} * x * y + {coeffs[5]} * y**2 +
+        {coeffs[6]} * x**3 + {coeffs[7]} * x**2 * y + {coeffs[8]} * x * y**2 + {coeffs[9]} * y**3 
+""")
+poly_string= f"{coeffs[0]}+{coeffs[1]}*$B$98+{coeffs[2]}*C100+{coeffs[3]}*$B$98^2+{coeffs[4]}*$B$98*C100+{coeffs[5]}*C100^2+{coeffs[6]}*$B$98^3+{coeffs[7]}*$B$98^2*C100+{coeffs[8]}*$B$98*C100^2+{coeffs[9]}*C100^3+{coeffs[10]}*$B$98^4+{coeffs[11]}*$B$98^3*C100+{coeffs[12]}*$B$98^2*C100^2+{coeffs[13]}*$B$98*C100^3+{coeffs[14]}*C100^4"
+poly_string = poly_string.replace('+-', '-')
+print(f"Polynomial Coefficients:\n{poly_string}")
+poly_string = poly_string.replace('$B$98', 'hz').replace('C100', 'power')
+print(f"Polynomial Coefficients:\n{poly_string}")
 
 # Calculate the error (difference) between estimated and actual flow values
-# flow_error = reference_data['flow'] - flow_estimated
+flow_error = reference_data['flow'] - flow_estimated
 
 # Create a grid of points to plot the fitted surface
 # Generate a range of x and y values based on the data extents
@@ -147,8 +148,8 @@ y_surf_range = np.linspace(extrapolated_data['extrapolated_power'].min(), extrap
 X_surf, Y_surf = np.meshgrid(x_surf_range, y_surf_range)
 
 # Calculate the Z values for the surface using the polynomial function
-# Z_surf = cubic_poly_surface(X_surf, Y_surf, coeffs)
-Z_surf = rbf(X_surf, Y_surf)  # Use the RBF interpolator to get Z values
+Z_surf = cubic_poly_surface(X_surf, Y_surf, coeffs)
+# Z_surf = rbf(X_surf, Y_surf)  # Use the RBF interpolator to get Z values
 
 # Matplotlib visualization
 fig = plt.figure(figsize=(12, 8))  # Create a figure for the plot
