@@ -171,9 +171,42 @@ class PumpPerformanceApp:
                 data_point['ft'] = row['ft'] * (hz / 50)**2
                 data_point['HP'] = row['HP'] * (hz / 50)**3 + power_offset
                 calculated_offspeed_values.append(data_point)
-        # Convert to DataFrame and return
-        return pd.DataFrame(calculated_offspeed_values, columns=['Hz', 'gpm', 'ft', 'HP'])
+        
+        calculated_offspeed_values_df = pd.DataFrame(calculated_offspeed_values, columns=['Hz', 'gpm', 'ft', 'HP'])
+        # fit a cubic polynomial surface to the calculated HZ, gpm, HP values
+        A = np.vstack([
+            np.ones_like(calculated_offspeed_values_df['Hz']),  # Constant term
+            calculated_offspeed_values_df['Hz'],                # x
+            calculated_offspeed_values_df['HP'],                # y
+            calculated_offspeed_values_df['Hz']**2,             # x^2
+            calculated_offspeed_values_df['Hz'] * calculated_offspeed_values_df['HP'],       # xy
+            calculated_offspeed_values_df['HP']**2,             # y^2
+            calculated_offspeed_values_df['Hz']**3,             # x^3
+            calculated_offspeed_values_df['Hz']**2 * calculated_offspeed_values_df['HP'],    # x^2y
+            calculated_offspeed_values_df['Hz'] * calculated_offspeed_values_df['HP']**2,# xy^2
+            calculated_offspeed_values_df['HP']**3,             # y^3
+            calculated_offspeed_values_df['Hz']**4,                # x^4
+            calculated_offspeed_values_df['Hz']**3 * calculated_offspeed_values_df['HP'],         # x^3y
+            calculated_offspeed_values_df['Hz']**2 * calculated_offspeed_values_df['HP']**2,      # x^2y^2
+            calculated_offspeed_values_df['Hz'] * calculated_offspeed_values_df['HP']**3,         # xy^3
+            calculated_offspeed_values_df['HP']**4              # y^4
+        ]).T
 
+        # np.linalg.lstsq returns a tuple; the first element contains the coefficients
+        coeffs, residuals, rank, s = np.linalg.lstsq(A, calculated_offspeed_values_df['gpm'], rcond=None)
+
+        return (calculated_offspeed_values_df, coeffs)
+
+    # Define the polynomial function using the calculated coefficients for predictions
+    def poly_surface(self, x, y, c):
+        return (c[0] +
+                c[1] * x + c[2] * y +
+                c[3] * x**2 + c[4] * x * y + c[5] * y**2 +
+                c[6] * x**3 + c[7] * x**2 * y + c[8] * x * y**2 + c[9] * y**3 
+                + c[10] * x**4 + c[11] * x**3 * y + c[12] * x**2 * y**2 + c[13] * x * y**3 + c[14] * y**4
+                )
+        
+    
     def plot_data(self):
         """Plots gpm vs HP for the selected pump and trim, with a line for each Hz."""
         pump_name = self.selected_pump.get()
@@ -202,17 +235,24 @@ class PumpPerformanceApp:
             self.canvas.draw()
             return
 
-        calculated_offspeed_values = self.calculated_offspeed_power()
+        calculated_offspeed_values, coeffs = self.calculated_offspeed_power()
         # print(f"calculated_offspeed_values: {calculated_offspeed_values}")
 
         # Plot for each unique Hz value
         unique_hz = sorted(filtered_df['Hz'].unique())
+
+        # polyfit_flow = self.poly_surface(calculated_offspeed_values['Hz'], calculated_offspeed_values['HP'], coeffs)
+
         for hz in unique_hz:
             hz_data = filtered_df[filtered_df['Hz'] == hz].sort_values(by='gpm')
             offspeed_data = calculated_offspeed_values[calculated_offspeed_values['Hz'] == hz]
+            hz_ones = np.empty(len(offspeed_data))
+            hz_ones.fill(hz)
+            polyfit_flow = self.poly_surface(hz_ones, offspeed_data['HP'], coeffs)
             if not hz_data.empty:
                 self.ax.plot(hz_data['gpm'], hz_data['HP'], marker='o', label=f'{hz} Hz')
                 self.ax.plot(offspeed_data['gpm'], offspeed_data['HP'], linestyle='--', label=f'{hz} Hz Calculated', alpha=0.7)
+                self.ax.plot(polyfit_flow, offspeed_data['HP'], linestyle=':', label=f'{hz} Hz Poly Fit', alpha=0.7)
 
 
         self.ax.set_xlabel("Flow (gpm)", fontsize=12)
