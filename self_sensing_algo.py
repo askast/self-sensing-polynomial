@@ -1,6 +1,7 @@
 import sys
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox
+import ttkbootstrap as ttk
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,15 +13,17 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 # For demonstration, we'll create a dummy DataFrame.
 try:
     # Attempt to read from an Excel file if it exists
-    # If you have a file named 'pump_data.xlsx' in the same directory, it will be used.
+    # If you have a file named 'self-sensing-data.xlsx' in the same directory, it will be used.
     # Otherwise, a dummy DataFrame will be created.
     df = pd.read_excel('self-sensing-data.xlsx')
+    # print(f"Data loaded from self-sensing-data.xlsx: {df.head()}")
 except FileNotFoundError:
     # Create a dummy DataFrame if the Excel file is not found
-    print("pump_data.xlsx not found. Using dummy data for demonstration.")
+    print("self-sensing-data.xlsx not found. Using dummy data for demonstration.")
     data = {
         'Pump': ['Pump A', 'Pump A', 'Pump A', 'Pump A', 'Pump A', 'Pump A', 'Pump B', 'Pump B', 'Pump B', 'Pump C', 'Pump C'],
         'Trim': ['Trim 1', 'Trim 1', 'Trim 1', 'Trim 2', 'Trim 2', 'Trim 2', 'Trim X', 'Trim X', 'Trim X', 'Trim Z', 'Trim Z'],
+        'RPM': [1750, 1750, 1750, 1750, 1750, 1750, 1800, 1800, 1800, 1500, 1500],
         'Hz': [30, 45, 60, 30, 45, 60, 50, 60, 60, 30, 60],
         'ft': [100, 150, 200, 90, 140, 190, 120, 160, 150, 80, 180],
         'gpm': [100, 150, 200, 90, 140, 190, 110, 150, 140, 70, 170],
@@ -29,36 +32,39 @@ except FileNotFoundError:
     df = pd.DataFrame(data)
 
 # Ensure required columns exist
-required_columns = ['Pump', 'Trim', 'Hz', 'ft', 'gpm', 'HP']
+required_columns = ['Pump', 'Trim', 'RPM', 'Hz', 'ft', 'gpm', 'HP']
 if not all(col in df.columns for col in required_columns):
-    messagebox.showerror("Data Error", "Excel file must contain 'Pump', 'Trim', 'Hz', 'ft', 'gpm', 'HP' columns.")
+    messagebox.showerror("Data Error", "Excel file must contain 'Pump', 'Trim', 'RPM', 'Hz', 'ft', 'gpm', 'HP' columns.")
     exit()
 
+
 # --- 2. Tkinter Application Setup ---
-class PumpPerformanceApp:
-    def __init__(self, master):
-        self.master = master
-        master.title("Pump Performance Analyzer")
-        master.geometry("1000x700") # Set initial window size
-        master.configure(bg="#f0f0f0") # Light grey background
+class PumpPerformanceApp(ttk.Frame):
+    def __init__(self, master, **kwargs):
+        super().__init__(master, padding=10, **kwargs)
 
         # Bind the window closing event to the on_closing method
-        master.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         # --- Styling ---
-        style = ttk.Style()
-        style.theme_use('clam') # Use a modern theme
-        style.configure("TFrame", background="#f0f0f0")
-        style.configure("TLabel", background="#f0f0f0", font=("Inter", 12))
-        style.configure("TButton", font=("Inter", 12, "bold"), background="#4CAF50", foreground="white", borderwidth=0, relief="raised")
-        style.map("TButton", background=[('active', '#45a049')]) # Darker green on hover
-        style.configure("TMenubutton", font=("Inter", 12), background="#ffffff", borderwidth=1, relief="solid") # Dropdown buttons
-        style.configure("Dropdown.TCombobox", fieldbackground="#ffffff", background="#ffffff", selectbackground="#e0e0e0")
+        # style = ttk.Style()
+        # style.theme_use('clam') # Use a modern theme
+        # style.configure("TFrame", background="#f0f0f0")
+        # style.configure("TLabel", background="#f0f0f0", font=("Inter", 12))
+        # style.configure("TButton", font=("Inter", 12, "bold"), background="#4CAF50", foreground="white", borderwidth=0, relief="raised")
+        # style.map("TButton", background=[('active', '#45a049')]) # Darker green on hover
+        # style.configure("TMenubutton", font=("Inter", 12), background="#ffffff", borderwidth=1, relief="solid") # Dropdown buttons
+        # style.configure("Dropdown.TCombobox", fieldbackground="#ffffff", background="#ffffff", selectbackground="#e0e0e0")
+        # # Just simply import the azure.tcl file
+        # self.tk.call("source", "azure.tcl")
 
+        # # Then set the theme you want with the set_theme procedure
+        # self.tk.call("set_theme", "light")
 
         # --- Variables for selections ---
-        self.selected_pump = tk.StringVar(master)
-        self.selected_trim = tk.StringVar(master)
+        self.selected_pump = tk.StringVar(self)
+        self.selected_trim = tk.StringVar(self)
+        self.selected_rpm = tk.StringVar(self)
 
         # Get unique pumps and set default selection
         self.pumps = sorted(df['Pump'].unique().tolist())
@@ -70,8 +76,25 @@ class PumpPerformanceApp:
 
         # --- UI Layout ---
         # Frame for controls
-        self.control_frame = ttk.Frame(master, padding="15 15 15 15", relief="groove")
+        self.control_frame = ttk.Frame(self, padding="15 15 15 15", relief="groove")
         self.control_frame.pack(side=tk.TOP, fill=tk.X, padx=20, pady=10)
+
+        # Frame for equations
+        self.equation_frame = ttk.Frame(self, padding="15 15 15 15", relief="groove")
+        self.equation_frame.pack(side=tk.TOP, fill=tk.X, padx=20, pady=10)
+
+        # Cell Address Entry with default of A1
+        self.excel_power_cell_var = tk.StringVar(self, value="A1")
+        self.excel_hz_cell_var = tk.StringVar(self, value="B1")
+        ttk.Label(self.equation_frame, text="Enter Power Data Cell Address:").pack(side=tk.LEFT, padx=10, pady=5)
+        ttk.Entry(self.equation_frame, textvariable=self.excel_power_cell_var, validate="key", validatecommand=self.update_equation).pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Label(self.equation_frame, text="Enter Hz Data Cell Address:").pack(side=tk.LEFT, padx=10, pady=5)
+        ttk.Entry(self.equation_frame, textvariable=self.excel_hz_cell_var, validate="key", validatecommand=self.update_equation).pack(side=tk.LEFT, padx=5, pady=5)
+
+        # Equation label with a copy button
+        self.equation_label = ttk.Label(self.equation_frame, text="Equation will be displayed here.")
+        self.equation_label.pack(side=tk.LEFT, padx=10, pady=5)
+        ttk.Button(self.equation_frame, text="Copy Equation", command=lambda: self.copy_to_clipboard(self.equation_label.cget("text"))).pack(side=tk.LEFT, padx=10, pady=5)
 
         # Pump Selection
         ttk.Label(self.control_frame, text="Select Pump:").pack(side=tk.LEFT, padx=10, pady=5)
@@ -85,18 +108,24 @@ class PumpPerformanceApp:
         self.trim_menu = ttk.OptionMenu(self.control_frame, self.selected_trim, "Select a Trim", *self.trim_options)
         self.trim_menu.pack(side=tk.LEFT, padx=10, pady=5)
 
+        # RPM Selection (will be updated dynamically)
+        ttk.Label(self.control_frame, text="Select RPM:").pack(side=tk.LEFT, padx=10, pady=5)
+        self.rpm_options = []
+        self.rpm_menu = ttk.OptionMenu(self.control_frame, self.selected_rpm, "Select RPM", *self.rpm_options)
+        self.rpm_menu.pack(side=tk.LEFT, padx=10, pady=5)
+
         # Plot Button
         self.plot_button = ttk.Button(self.control_frame, text="Plot Performance", command=self.plot_data)
         self.plot_button.pack(side=tk.LEFT, padx=20, pady=5)
 
         # --- Matplotlib Plot Area ---
         self.figure, self.ax = plt.subplots(figsize=(8, 5)) # Create a figure and an axes
-        self.figure.patch.set_facecolor('#f0f0f0') # Match background
-        self.canvas = FigureCanvasTkAgg(self.figure, master=master)
+        # self.figure.patch.set_facecolor('#f0f0f0') # Match background
+        self.canvas = FigureCanvasTkAgg(self.figure, master=self)
         self.canvas_widget = self.canvas.get_tk_widget()
         self.canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=20, pady=10)
 
-        self.toolbar = NavigationToolbar2Tk(self.canvas, master)
+        self.toolbar = NavigationToolbar2Tk(self.canvas, self)
         self.toolbar.update()
         self.canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=20, pady=10)
 
@@ -109,6 +138,21 @@ class PumpPerformanceApp:
         """Handles the window closing event to gracefully exit the application."""
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
             self.master.destroy()
+
+    def copy_to_clipboard(self, text_to_copy):
+        """Copies the provided text to the clipboard."""
+        self.clipboard_clear()
+        self.clipboard_append(text_to_copy)
+        self.update()  # Ensure the clipboard content is updated
+
+    def update_equation(self):
+        """Updates the equations displayed in the equation frame based on cell addresses."""
+        power_cell = self.excel_power_address.get().strip().upper()
+        hz_cell = self.excel_hz_address.get().strip().upper()
+
+        # Display the equations with the provided cell addresses
+        ttk.Label(self.equation_frame, text=f"Power Equation (Cell {power_cell}): HP = f(gpm, ft, Hz)").pack(side=tk.LEFT, padx=10, pady=5)
+        ttk.Label(self.equation_frame, text=f"Frequency Equation (Cell {hz_cell}): Hz = f(time)").pack(side=tk.LEFT, padx=10, pady=5)
 
     def update_trim_menu(self, *args):
         """Updates the trim dropdown menu based on the selected pump."""
@@ -132,27 +176,53 @@ class PumpPerformanceApp:
         else:
             self.selected_trim.set("No Trims Available")
 
+        """Updates the rpm dropdown menu based on the selected pump and trim."""
+        selected_pump_name = self.selected_pump.get()
+        selected_trim_name = float(self.selected_trim.get())
+        print(f"Selected Pump: {selected_pump_name}, Selected Trim: {selected_trim_name}")
+        if selected_pump_name == "No Pumps Found":
+            self.rpm_options = []
+        elif selected_trim_name == "No Trims Available":
+            self.rpm_options = []
+        else:
+            # Filter DataFrame for the selected pump and get unique RPMs
+            rpms_for_pump = df[(df['Pump'] == selected_pump_name) & (df['Trim'] == selected_trim_name)]['RPM'].unique().tolist()
+            self.rpm_options = sorted(rpms_for_pump)
+
+        # Clear existing options in the rpm menu
+        self.rpm_menu['menu'].delete(0, 'end')
+
+        # Add new options
+        if self.rpm_options:
+            for rpm in self.rpm_options:
+                # Corrected line: Use lambda to set the StringVar
+                self.rpm_menu['menu'].add_command(label=rpm, command=lambda value=rpm: self.selected_rpm.set(value))
+            self.selected_rpm.set(self.rpm_options[0]) # Set default rpm
+        else:
+            self.selected_rpm.set("No RPMs Available")
+
         # Update plot immediately after trim menu update, in case pump changed
         self.plot_data()
 
     def calculated_offspeed_power(self):
-        """Calculates the off-speed power for the selected pump and trim."""
+        """Calculates the off-speed power for the selected pump, trim and rpm."""
         pump_name = self.selected_pump.get()
         trim_name = float(self.selected_trim.get())
+        rpm_name = float(self.selected_rpm.get())
 
-        if pump_name == "No Pumps Found" or trim_name == "No Trims Available":
+        if pump_name == "No Pumps Found" or trim_name == "No Trims Available" or rpm_name == "No RPMs Available":
             return None
 
         # Filter data for the selected pump and trim
-        filtered_df = df[(df['Pump'] == pump_name) & (df['Trim'] == trim_name) & (df['Hz'] == 50)]
+        filtered_df = df[(df['Pump'] == pump_name) & (df['Trim'] == trim_name) & (df['RPM'] == rpm_name) & (df['Hz'] == 50)]
         # print(f"filtered_df: {filtered_df}")
 
         if filtered_df.empty:
             return None
 
-        zero_flow_power_60Hz = df[(df['Pump'] == pump_name) & (df['Trim'] == trim_name) & (df['Hz'] == 60)].sort_values(by='gpm')['HP'].values[0]
-        zero_flow_power_30Hz = df[(df['Pump'] == pump_name) & (df['Trim'] == trim_name) & (df['Hz'] == 30)].sort_values(by='gpm')['HP'].values[0]
-        zero_flow_power_50Hz = df[(df['Pump'] == pump_name) & (df['Trim'] == trim_name) & (df['Hz'] == 50)].sort_values(by='gpm')['HP'].values[0]
+        zero_flow_power_60Hz = df[(df['Pump'] == pump_name) & (df['Trim'] == trim_name) & (df['RPM'] == rpm_name) & (df['Hz'] == 60)].sort_values(by='gpm')['HP'].values[0]
+        zero_flow_power_30Hz = df[(df['Pump'] == pump_name) & (df['Trim'] == trim_name) & (df['RPM'] == rpm_name) & (df['Hz'] == 30)].sort_values(by='gpm')['HP'].values[0]
+        zero_flow_power_50Hz = df[(df['Pump'] == pump_name) & (df['Trim'] == trim_name) & (df['RPM'] == rpm_name) & (df['Hz'] == 50)].sort_values(by='gpm')['HP'].values[0]
 
         # curve fit a quadratic polynomial to the zero flow power values
         coeffs = np.polyfit([30, 50, 60], [zero_flow_power_30Hz-(zero_flow_power_50Hz*(30/50)**3), 0, zero_flow_power_60Hz-(zero_flow_power_50Hz*(60/50)**3)], 2)
@@ -208,14 +278,15 @@ class PumpPerformanceApp:
         
     
     def plot_data(self):
-        """Plots gpm vs HP for the selected pump and trim, with a line for each Hz."""
+        """Plots gpm vs HP for the selected pump, trim, and rpm, with a line for each Hz."""
         pump_name = self.selected_pump.get()
         trim_name = float(self.selected_trim.get())
+        rpm_name = float(self.selected_rpm.get())
 
         self.ax.clear() # Clear previous plot
 
-        if pump_name == "No Pumps Found" or trim_name == "No Trims Available":
-            self.ax.text(0.5, 0.5, "Please select a Pump and Trim to display data.",
+        if pump_name == "No Pumps Found" or trim_name == "No Trims Available" or rpm_name == "No RPMs Available":
+            self.ax.text(0.5, 0.5, "Please select a Pump, Trim, and RPM to display data.",
                          horizontalalignment='center', verticalalignment='center',
                          transform=self.ax.transAxes, fontsize=14, color='gray')
             self.ax.set_title("Pump Performance (No Data Selected)")
@@ -223,13 +294,13 @@ class PumpPerformanceApp:
             return
 
         # Filter data based on selections
-        filtered_df = df[(df['Pump'] == pump_name) & (df['Trim'] == trim_name)]
+        filtered_df = df[(df['Pump'] == pump_name) & (df['Trim'] == trim_name) & (df['RPM'] == rpm_name)]
 
         if filtered_df.empty:
-            self.ax.text(0.5, 0.5, f"No data found for {pump_name} - {trim_name}.",
+            self.ax.text(0.5, 0.5, f"No data found for {pump_name} - {trim_name} - {rpm_name}.",
                          horizontalalignment='center', verticalalignment='center',
                          transform=self.ax.transAxes, fontsize=14, color='gray')
-            self.ax.set_title(f"Pump Performance ({pump_name} - {trim_name}) - No Data")
+            self.ax.set_title(f"Pump Performance ({pump_name} - {trim_name} - {rpm_name}) - No Data")
             self.ax.set_xlabel("Flow (gpm)")
             self.ax.set_ylabel("Horsepower (HP)")
             self.canvas.draw()
@@ -258,9 +329,9 @@ class PumpPerformanceApp:
         self.ax.set_xlabel("Flow (gpm)", fontsize=12)
         self.ax.set_ylabel("Horsepower (HP)", fontsize=12)
         self.ax.set_title(f"Pump Performance: {pump_name} - {trim_name}", fontsize=14)
-        self.ax.legend(title="Frequency", loc='best')
+        self.ax.legend(title="Frequency", loc='best', fontsize=8)
         self.ax.grid(True, linestyle='--', alpha=0.7)
-        self.ax.set_facecolor('#ffffff') # White plot background
+        # self.ax.set_facecolor('#ffffff') # White plot background
 
         # Draw the canvas
         self.canvas.draw()
@@ -268,7 +339,9 @@ class PumpPerformanceApp:
     
 # --- Main Application Loop ---
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = PumpPerformanceApp(root)
-    root.protocol("WM_DELETE_WINDOW", sys.exit)
-    root.mainloop()
+    app = ttk.Window(
+        title="Pump Performance Analyzer",
+        themename="flatly"
+    )
+    PumpPerformanceApp(app)
+    app.mainloop()
